@@ -20,7 +20,8 @@ async function generateUnsignedTransaction(senderId, username, amount) {
     }
 
     const nonce = await ethProvider.getTransactionCount(sender.walletAddress, "latest");
-    const gasPrice = await ethProvider.getGasPrice();
+    const feeData = await ethProvider.getFeeData();
+    const gasPrice = feeData.gasPrice;
     const amountWei = ethers.parseEther(amount.toString());
 
     const tx = {
