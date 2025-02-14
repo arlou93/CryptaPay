@@ -2,6 +2,7 @@ const User = require("../models/User.model");
 const { ethers } = require("ethers");
 const { ethProvider } = require("../config/providers");
 const logger = require("../config/logger");
+const { walletNotFoundMessage } = require("../helpers/commonMessages");
 
 async function getBalance(ctx) {
   const chatId = ctx.from.id;
@@ -10,7 +11,8 @@ async function getBalance(ctx) {
     const user = await User.findOne({ where: { telegramId: chatId } });
 
     if (!user || !user.walletAddress) {
-      await ctx.reply("❌ У вас нет подключенного кошелька. Используйте /connect_wallet.");
+      const { text, options } = walletNotFoundMessage
+      await ctx.replyWithMarkdown(text, options);
       return;
     }
 

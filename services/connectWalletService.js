@@ -2,12 +2,81 @@ const { redis } = require("../config/redis");
 const User = require("../models/User.model");
 const crypto = require("crypto");
 const { verifyMessage } = require("ethers");
+const { messageCreator } = require("../helpers/messageCreator");
 
 const users = new Map();
+
+const existingWalletMessage = (wallet) => messageCreator([
+  {
+    title: "⚠️ *У вас уже есть подключенный кошелек*",
+    items: [
+      wallet
+    ]
+  }
+], [
+  [{ text: "🔌 Отключить кошелек", callback_data: "disconnect" }]
+]);
+
+const walletConnectMessage = messageCreator([
+  {
+    items: [
+      "*1.* Откройте ваш криптокошелек",
+      "*2.* Подпишите код подтверждения",
+      "*3.* Отправьте полученную подпись сюда"
+    ]
+  },
+  {
+    items: [
+      "*✍️ Ваш код для подписи ↓*"
+    ]
+  }
+]);
+
+const connectedWallet = (wallet)=> messageCreator([
+  {
+    title: "🎉 *Поздравляем! Кошелек успешно подключен!*",
+  },
+  {
+    title: "📍 *Адрес вашего кошелька:*",
+    items: [
+      wallet
+    ]
+  },
+  {
+    title: "💳 *Основные операции:*",
+    items: [
+      "/send amount `@user` – Перевести USDT",
+      "/invoice amount – Получить USDT",
+      "/balance – Проверить баланс",
+    ]
+  },
+])
+
+const errorConnection = messageCreator([
+  {
+    title: "🔐 *Возникла проблема с подписью*",
+  },
+  {
+    title: "Небольшая проверка:",
+    items: [
+      "*1.* Код скопирован корректно",
+      "*2.* Подпись выполнена верно",
+    ]
+  },
+  {
+    title: "💡 Используйте /connect для получения нового кода или повторите подпись",
+  },
+], [
+  [
+    { text: "🔗 Подключить кошелек", callback_data: "connect" },
+  ]
+])
+
 
 async function connectWallet(ctx) {
   const chatId = ctx.from.id;
   let existingWallet = await redis.get(`wallet:${chatId}`);
+
   if (!existingWallet) {
     const user = await User.findOne({ where: { telegramId: chatId } });
     if (user) {
@@ -17,15 +86,8 @@ async function connectWallet(ctx) {
   }
 
   if (existingWallet) {
-    await ctx.reply(
-      `*⚠️ Внимание!*\n\n` +
-      `У вас уже есть активный кошелек:\n` +
-      `\`${existingWallet}\`\n\n` +
-      `Чтобы подключить новый кошелек:\n` +
-      `1️⃣ Сначала отключите текущий через /disconnect\n` +
-      `2️⃣ Затем повторите попытку подключения`,
-      { parse_mode: 'Markdown' }
-    );
+    const { text, options } = existingWalletMessage(existingWallet);
+    await ctx.replyWithMarkdown(text, options);
     return;
   }
 
@@ -33,15 +95,10 @@ async function connectWallet(ctx) {
   users.set(chatId, { nonce });
   await redis.set(`nonce:${chatId}`, nonce, 'EX', 300);
 
-  await ctx.reply(
-    `*🔐 Подключение кошелька*\n\n` +
-    `1️⃣ Скопируйте код подтверждения ниже\n` +
-    `2️⃣ Подпишите его в вашем криптокошельке\n` +
-    `3️⃣ Отправьте подпись в ответном сообщении\n\n` +
-    `*Ваш код для подписи:*`,
-    { parse_mode: 'Markdown' }
-  );
-  await ctx.reply(`\`${nonce}\``, { parse_mode: 'Markdown' });
+  const { text, options } = walletConnectMessage;
+
+  await ctx.replyWithMarkdown(text, options);
+  await ctx.reply(nonce)
 }
 
 async function catchWalletAddress(ctx) {
@@ -59,27 +116,14 @@ async function catchWalletAddress(ctx) {
 
     await User.create({ telegramId: chatId, walletAddress: recoveredAddress, username });
 
-    await ctx.reply(
-      `*🎉 Поздравляем!*\n\n` +
-      `*✅ Кошелек успешно подключен*\n\n` +
-      `📍 *Адрес вашего кошелька:*\n` +
-      `\`${recoveredAddress}\`\n\n` +
-      `*Доступные команды:*\n` +
-      `💸 /send - отправить криптовалюту\n` +
-      `❌ /disconnect - отключить кошелек\n\n` +
-      `Приятного использования! 🚀`,
-      { parse_mode: 'Markdown' }
-    );
+    const { text, options } = connectedWallet(recoveredAddress);
+
+    await ctx.replyWithMarkdown(text, options);
     users.delete(chatId);
   } catch (error) {
-    await ctx.reply(
-      `*❌ Ошибка подписи*\n\n` +
-      `Пожалуйста, проверьте:\n` +
-      `1️⃣ Правильность скопированного кода\n` +
-      `2️⃣ Корректность подписи\n\n` +
-      `Попробуйте снова или используйте /connect для получения нового кода.`,
-      { parse_mode: 'Markdown' }
-    );
+    const { text, options } = errorConnection;
+
+    await ctx.replyWithMarkdown(text, options);
   }
 }
 

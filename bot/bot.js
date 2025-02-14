@@ -11,13 +11,25 @@ const { connectWallet, catchWalletAddress } = require("../services/connectWallet
 const { createWallet } = require("../services/createWalletService");
 const { disconnectWallet } = require("../services/disconnectWalletService");
 const { startHandler } = require("./handlers/startHandler");
+const { helpHandler } = require("./handlers/helpHandler");
 
 bot.command("start", startHandler);
+
+bot.command("help", helpHandler);
+bot.action("help", helpHandler);
+
 bot.command("send", handleTransaction);
 bot.command("balance", getBalance);
+
 bot.command("create", createWallet);
+bot.action("create", createWallet);
+
 bot.command("connect", connectWallet);
+bot.action("connect", connectWallet);
+
 bot.command("disconnect", disconnectWallet);
+bot.action("disconnect", disconnectWallet);
+
 bot.on("message", catchWalletAddress);
 bot.on("message", handleSignedTransaction);
 
