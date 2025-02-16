@@ -114,7 +114,7 @@ async function handleTransaction(ctx) {
 
         logger.info(`Пользователь ${senderId} отправил ${amount} USDT через Tron пользователю ${username}. TX: ${result.txid}`);
       } else {
-        throw new Error("Ошибка при отправке в Tron");
+        logger.error("Ошибка при отправке в Tron");
       }
     } catch (error) {
       logger.error(`Ошибка перевода от ${senderId} пользователю ${username} через Tron: ${error.message}`);
@@ -174,7 +174,7 @@ async function handleSignedTransaction(ctx) {
   const rawSignedTx = ctx.message.text.trim();
 
   if (!rawSignedTx.startsWith("0x")) {
-    return;
+    return next();
   }
 
   const result = await sendSignedTransaction(senderId, rawSignedTx);

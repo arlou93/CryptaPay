@@ -10,9 +10,10 @@ const walletNotFoundMessage = messageCreator([
   }
 ], [
   [{ text: "🔗 Подключить кошелек", callback_data: "connect" }],
-    [{ text: "🔑 Создать новый", callback_data: "create" }]
+  [{ text: "🔑 Создать новый", callback_data: "create" }]
 ]);
 
- module.exports = {
-   walletNotFoundMessage: walletNotFoundMessage
- };
+
+module.exports = {
+  walletNotFoundMessage: walletNotFoundMessage
+};

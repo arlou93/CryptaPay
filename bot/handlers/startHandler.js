@@ -29,11 +29,6 @@ const welcomeMessage = (userName) => messageCreator([
   [{ text: "📖 Команды и инструкции", callback_data: "help" }],
 ]);
 
-module.exports = { welcomeMessage };
-
-
-module.exports = { welcomeMessage };
-
 
 async function startHandler(ctx) {
   const firstName = ctx.from.first_name || "друг";

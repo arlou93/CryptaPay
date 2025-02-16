@@ -12,6 +12,11 @@ const User = sequelize.define("User", {
     allowNull: true,
     unique: false,
   },
+  tronWalletAddress: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    unique: false,
+  },
   username: {
     type: DataTypes.STRING,
     allowNull: true,
