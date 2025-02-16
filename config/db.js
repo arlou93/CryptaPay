@@ -19,6 +19,6 @@ sequelize.authenticate()
   .then(() => {
     info("✅ Таблицы синхронизированы");
   })
-  .catch(err => error("❌ Ошибка подключения к БД:", err));
+  .catch(err => error("⚠️ Ошибка подключения к БД:", err));
 
 module.exports = sequelize;

@@ -10,7 +10,7 @@ async function getBalance(ctx) {
   const chatId = ctx.from.id;
 
   try {
-    let evmWallet = await redis.get(`wallet:${chatId}`);
+    let evmWallet = await redis.get(`evmWallet:${chatId}`);
     let tronWallet = await redis.get(`tronWallet:${chatId}`);
 
     if (!evmWallet || !tronWallet) {
@@ -22,10 +22,10 @@ async function getBalance(ctx) {
         return;
       }
 
-      evmWallet = user.walletAddress || null;
+      evmWallet = user.evmWalletAddress || null;
       tronWallet = user.tronWalletAddress || null;
 
-      if (evmWallet) await redis.set(`wallet:${chatId}`, evmWallet, 'EX', 3600);
+      if (evmWallet) await redis.set(`evmWallet:${chatId}`, evmWallet, 'EX', 3600);
       if (tronWallet) await redis.set(`tronWallet:${chatId}`, tronWallet, 'EX', 3600);
     }
 

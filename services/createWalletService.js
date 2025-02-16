@@ -13,13 +13,13 @@ async function handleCreateSelection(ctx) {
   const chatId = Number(ctx.from.id);
   const network = ctx.match[1];
 
-  let cachedWallet = await redis.get(`wallet:${chatId}`);
+  let cachedEvmWallet = await redis.get(`evmWallet:${chatId}`);
   let cachedTronWallet = await redis.get(`tronWallet:${chatId}`);
 
-  if (network === "evm" && cachedWallet || network === "tron" && cachedTronWallet) {
+  if (network === "evm" && cachedEvmWallet || network === "tron" && cachedTronWallet) {
     const message = getCreateWalletMessage('walletAlreadyExists', {
       network,
-      address: network === "evm" ? cachedWallet : cachedTronWallet
+      address: network === "evm" ? cachedEvmWallet : cachedTronWallet
     });
     await ctx.reply(message.text, message.options);
     return;
@@ -27,15 +27,21 @@ async function handleCreateSelection(ctx) {
 
   let user = await User.findOne({ where: { telegramId: chatId } });
 
-  if (network === "evm" && user?.walletAddress) {
-    await redis.set(`wallet:${chatId}`, user.walletAddress, 'EX', 3600);
-    const message = getCreateWalletMessage('walletAlreadyExists', { network, address: user.walletAddress });
+  if (network === "evm" && user?.evmWalletAddress) {
+    await redis.set(`evmWallet:${chatId}`, user.evmWalletAddress, 'EX', 3600);
+    if (ctx.from.username) {
+      await redis.set(`evmWallet:${ctx.from.username}`, user.evmWalletAddress, 'EX', 3600);
+    }
+    const message = getCreateWalletMessage('walletAlreadyExists', { network, address: user.evmWalletAddress });
     await ctx.reply(message.text, message.options);
     return;
   }
 
   if (network === "tron" && user?.tronWalletAddress) {
     await redis.set(`tronWallet:${chatId}`, user.tronWalletAddress, 'EX', 3600);
+    if (ctx.from.username) {
+      await redis.set(`tronWallet:${ctx.from.username}`, user.tronWalletAddress, 'EX', 3600);
+    }
     const message = getCreateWalletMessage('walletAlreadyExists', { network, address: user.tronWalletAddress });
     await ctx.reply(message.text, message.options);
     return;
@@ -50,7 +56,7 @@ async function handleCreateSelection(ctx) {
 
   if (user) {
     const updateData = network === "evm"
-      ? { walletAddress: newWallet.address }
+      ? { evmWalletAddress: newWallet.address }
       : { tronWalletAddress: newWallet.address.base58 };
 
     await User.update(updateData, {
@@ -60,13 +66,16 @@ async function handleCreateSelection(ctx) {
     await User.create({
       telegramId: chatId,
       username: ctx.from.username || null,
-      walletAddress: network === "evm" ? newWallet.address : null,
+      evmWalletAddress: network === "evm" ? newWallet.address : null,
       tronWalletAddress: network === "tron" ? newWallet.address.base58 : null
     });
   }
 
   if (network === "evm") {
-    await redis.set(`wallet:${chatId}`, newWallet.address, 'EX', 3600);
+    await redis.set(`evmWallet:${chatId}`, newWallet.address, 'EX', 3600);
+    if (ctx.from.username) {
+      await redis.set(`evmWallet:${ctx.from.username}`, newWallet.address, 'EX', 3600);
+    }
     await redis.del(`wallet_setup:${chatId}`);
 
     const message = getCreateWalletMessage('walletCreated', {
@@ -77,8 +86,11 @@ async function handleCreateSelection(ctx) {
     await ctx.reply(message.text, message.options);
   } else {
     await redis.set(`tronWallet:${chatId}`, newWallet.address.base58, 'EX', 3600);
+    if (ctx.from.username) {
+      await redis.set(`tronWallet:${ctx.from.username}`, newWallet.address.base58, 'EX', 3600);
+    }
     await redis.del(`wallet_setup:${chatId}`);
-    
+
     const message = getCreateWalletMessage('walletCreated', {
       network,
       address: newWallet.address.base58,

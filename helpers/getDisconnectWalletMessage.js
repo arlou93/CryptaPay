@@ -1,7 +1,7 @@
 function getDisconnectWalletMessage(type, params = {}) {
   const messages = {
     noWallets: {
-      text: "⚠️ *У вас нет подключенных кошельков*",
+      text: "⚠️ *У вас нет активных кошельков*",
       options: {
         parse_mode: "Markdown",
         reply_markup: {
@@ -15,7 +15,7 @@ function getDisconnectWalletMessage(type, params = {}) {
 
     selectWalletToDisconnect: {
       text: "🔌 *Выберите кошелек для отключения*\n\n" +
-        `${params.walletAddress ? "*EVM:*" : ""} \`${params.walletAddress || ""}\`\n\n` +
+        `${params.evmWalletAddress ? "*EVM:*" : ""} \`${params.evmWalletAddress || ""}\`\n\n` +
         `${params.tronWalletAddress ? "*TRON:*" : ""} \`${params.tronWalletAddress || ""}\``,
       options: {
         parse_mode: "Markdown",

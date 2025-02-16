@@ -5,7 +5,11 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 
 bot.use(rateLimitMiddleware);
 
-const { handleTransaction } = require("../services/transactionService");
+const {
+  handleTransaction,
+  handleTransactionConfirm,
+  handleTransactionCancel
+} = require("../services/transactionService");
 const { getBalance } = require("../services/balanceService");
 const { connectWallet, handleConnectSelection, handleWalletAddress } = require("../services/connectWalletService");
 const { createWallet, handleCreateSelection } = require("../services/createWalletService");
@@ -13,13 +17,19 @@ const { disconnectWallet, handleDisconnectSelection } = require("../services/dis
 const { startHandler } = require("./handlers/startHandler");
 const { helpHandler } = require("./handlers/helpHandler");
 const { generateInvoice } = require("../services/invoiceService");
+const { feesCommand } = require("./handlers/feesHandler");
 
 bot.command("start", startHandler);
 
 bot.command("help", helpHandler);
 bot.action("help", helpHandler);
 
-bot.command("send", handleTransaction);
+bot.command("fees", feesCommand);
+bot.action("fees", feesCommand);
+
+// bot.command("send", handleTransaction);
+// bot.action('confirm_tx', handleTransactionConfirm);
+// bot.action('cancel_tx', handleTransactionCancel);
 bot.command("invoice", generateInvoice);
 bot.command("balance", getBalance);
 
@@ -32,9 +42,8 @@ bot.action("connect", connectWallet);
 bot.action(/^connect_wallet_(evm|tron)$/, handleConnectSelection);
 
 bot.command("disconnect", disconnectWallet);
-bot.action(/^disconnect_wallet_(evm|tron)$/,handleDisconnectSelection)
+bot.action(/^disconnect_wallet_(evm|tron)$/, handleDisconnectSelection)
 
 bot.on("message", handleWalletAddress);
-// bot.on("message", handleSignedTransaction);
 
 module.exports = bot;

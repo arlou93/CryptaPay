@@ -4,13 +4,13 @@ const User = require("../models/User.model");
 async function generateInvoice(ctx) {
   const args = ctx.message.text.split(" ");
   if (args.length !== 2 || isNaN(parseFloat(args[1]))) {
-    await ctx.reply("❌ Используйте команду так: `/invoice <сумма>`", { parse_mode: "Markdown" });
+    await ctx.reply("⚠️ Используйте команду так: `/invoice <сумма>`", { parse_mode: "Markdown" });
     return;
   }
 
   const amount = parseFloat(args[1]);
   if (amount <= 0) {
-    await ctx.reply("❌ Сумма счета должна быть больше 0.", { parse_mode: "Markdown" });
+    await ctx.reply("⚠️ Сумма счета должна быть больше 0", { parse_mode: "Markdown" });
     return;
   }
 
@@ -18,7 +18,7 @@ async function generateInvoice(ctx) {
   const senderUsername = ctx.from.username || `user_${senderId}`;
 
   const user = await User.findOne({ where: { telegramId: senderId } });
-  if (!user || !user.walletAddress) {
+  if (!user || !user.evmWalletAddress) {
     const message = {
       text: "⚠️ *У вас нет подключенных кошельков*",
       options: {

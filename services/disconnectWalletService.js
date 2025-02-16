@@ -5,19 +5,19 @@ const { getDisconnectWalletMessage } = require("../helpers/getDisconnectWalletMe
 async function disconnectWallet(ctx) {
   const chatId = Number(ctx.from.id);
 
-  let cachedWallet = await redis.get(`wallet:${chatId}`);
+  let cachedEvmWallet = await redis.get(`evmWallet:${chatId}`);
   let cachedTronWallet = await redis.get(`tronWallet:${chatId}`);
 
   const user = await User.findOne({ where: { telegramId: chatId } });
 
-  if (!cachedWallet && !cachedTronWallet && (!user?.walletAddress && !user?.tronWalletAddress)) {
+  if (!cachedEvmWallet && !cachedTronWallet && (!user?.evmWalletAddress && !user?.tronWalletAddress)) {
     const message = getDisconnectWalletMessage('noWallets')
     await ctx.reply(message.text, message.options);
     return;
   }
 
   const buttons = [];
-  if (cachedWallet || user?.walletAddress) {
+  if (cachedEvmWallet || user?.evmWalletAddress) {
     buttons.push([{
       text: "EVM",
       callback_data: "disconnect_wallet_evm"
@@ -34,7 +34,7 @@ async function disconnectWallet(ctx) {
   const message = getDisconnectWalletMessage('selectWalletToDisconnect', {
     buttons,
     tronWalletAddress: user?.tronWalletAddress,
-    walletAddress: user?.walletAddress,
+    evmWalletAddress: user?.evmWalletAddress,
   });
   await ctx.reply(message.text, message.options);
 }
@@ -50,28 +50,41 @@ async function handleDisconnectSelection(ctx) {
     return;
   }
 
-  let cachedWallet = await redis.get(`wallet:${chatId}`);
+  const username = user.username; // Получаем username пользователя
+  let cachedEvmWallet = await redis.get(`evmWallet:${chatId}`);
   let cachedTronWallet = await redis.get(`tronWallet:${chatId}`);
 
-  if (network === 'evm' && cachedWallet || network === 'evm' && user?.walletAddress) {
+  if (network === 'evm' && (cachedEvmWallet || user?.evmWalletAddress)) {
+    // Обновляем базу данных
     await User.update(
-      { walletAddress: null },
+      { evmWalletAddress: null },
       { where: { telegramId: chatId } }
     );
 
-    await redis.del(`wallet:${chatId}`);
+    // Удаляем кэш по chatId
+    await redis.del(`evmWallet:${chatId}`);
+    // Удаляем кэш по username
+    if (username) {
+      await redis.del(`evmWallet:${username}`);
+    }
 
     const message = getDisconnectWalletMessage('walletDisconnectedEVM');
     await ctx.reply(message.text, message.options);
   }
 
-  if (network === 'tron' && cachedTronWallet || network === 'tron' && user?.tronWalletAddress) {
+  if (network === 'tron' && (cachedTronWallet || user?.tronWalletAddress)) {
+    // Обновляем базу данных
     await User.update(
       { tronWalletAddress: null },
       { where: { telegramId: chatId } }
     );
 
+    // Удаляем кэш по chatId
     await redis.del(`tronWallet:${chatId}`);
+    // Удаляем кэш по username
+    if (username) {
+      await redis.del(`tronWallet:${username}`);
+    }
 
     const message = getDisconnectWalletMessage('walletDisconnectedTRON');
     await ctx.reply(message.text, message.options);

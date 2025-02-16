@@ -1,189 +1,281 @@
 const { ethers } = require("ethers");
 const { ethProvider, bscProvider, polygonProvider, tronProvider } = require("../config/providers");
 const User = require("../models/User.model");
+const { redis } = require("../config/redis");
 const logger = require("../config/logger");
 const { getBestNetwork } = require("./networkService");
 const { walletNotFoundMessage } = require("../helpers/commonMessages");
 
-async function generateUnsignedTransaction(senderId, username, amount) {
+const CACHE_EXPIRATION = 3600; // Время жизни кэша в секундах
+const MAX_AUTO_TRANSACTION = 100; // Максимальная сумма для автоматической отправки
+const GAS_LIMIT = 21000; // Стандартный лимит газа для ETH транзакций
+
+async function generateUnsignedTransaction(senderId, username, amount, network) {
   try {
-    const sender = await User.findOne({ where: { telegramId: senderId } });
-    const recipient = await User.findOne({ where: { username } });
+    // Получаем данные отправителя и получателя
+    const [sender, recipient] = await Promise.all([
+      User.findOne({ where: { telegramId: senderId } }),
+      User.findOne({ where: { username } })
+    ]);
 
     if (!sender || !recipient) {
-      return { success: false, error: "Один из пользователей не найден" };
+      return { success: false, error: "⚠️ Один из пользователей не найден" };
     }
 
-    const senderBalanceWei = await ethProvider.getBalance(sender.walletAddress);
+    // Выбор провайдера в зависимости от сети
+    const provider = {
+      ETH: ethProvider,
+      BSC: bscProvider,
+      POLYGON: polygonProvider
+    }[network];
+
+    if (!provider) {
+      return { success: false, error: "⚠️ Неподдерживаемая сеть" };
+    }
+
+    // Проверка баланса
+    const senderBalanceWei = await provider.getBalance(sender.evmWalletAddress);
     const senderBalance = ethers.formatEther(senderBalanceWei);
 
     if (parseFloat(senderBalance) < amount) {
-      return { success: false, error: "Недостаточно средств" };
+      return {
+        success: false,
+        error: `💰 Недостаточно средств. Баланс: ${senderBalance} ${network}`
+      };
     }
 
-    const nonce = await ethProvider.getTransactionCount(sender.walletAddress, "latest");
-    const feeData = await ethProvider.getFeeData();
-    const gasPrice = feeData.gasPrice;
-    const amountWei = ethers.parseEther(amount.toString());
+    // Получение необходимых данных для транзакции
+    const [nonce, feeData, network] = await Promise.all([
+      provider.getTransactionCount(sender.evmWalletAddress),
+      provider.getFeeData(),
+      provider.getNetwork()
+    ]);
 
+    // Формирование транзакции
     const tx = {
-      to: recipient.walletAddress,
-      value: amountWei.toString(),
-      gasLimit: ethers.toNumber(21000),
-      gasPrice: gasPrice.toString(),
+      to: recipient.evmWalletAddress,
+      value: ethers.parseEther(amount.toString()).toString(),
+      gasLimit: ethers.toNumber(GAS_LIMIT),
+      gasPrice: feeData.gasPrice.toString(),
       nonce,
-      chainId: await ethProvider.getNetwork().then((n) => n.chainId),
+      chainId: network.chainId,
     };
 
     return { success: true, tx };
   } catch (error) {
-    return { success: false, error: error.message };
+    logger.error(`⚠️ Ошибка генерации транзакции: ${error.message}`);
+    return { success: false, error: "Ошибка при создании транзакции" };
   }
 }
 
-async function sendSignedTransaction(senderId, rawSignedTx) {
-  try {
-    const sender = await User.findOne({ where: { telegramId: senderId } });
-    if (!sender) {
-      return { success: false, error: "Пользователь не найден" };
+async function getRecipientWallet(username, bestNetwork) {
+  // Получаем данные из кэша
+  const [recipientWallet, recipientTronWallet] = await Promise.all([
+    redis.get(`evmWallet:${username}`),
+    redis.get(`tronWallet:${username}`)
+  ]);
+
+  // Если нет в кэше, ищем в базе
+  if (!recipientWallet && !recipientTronWallet) {
+    const recipient = await User.findOne({ where: { username } });
+    if (!recipient) return null;
+
+    // Кэшируем найденные адреса
+    const cachePromises = [];
+    if (recipient.evmWalletAddress) {
+      cachePromises.push(
+        redis.set(`evmWallet:${username}`, recipient.evmWalletAddress, "EX", CACHE_EXPIRATION)
+      );
     }
+    if (recipient.tronWalletAddress) {
+      cachePromises.push(
+        redis.set(`tronWallet:${username}`, recipient.tronWalletAddress, "EX", CACHE_EXPIRATION)
+      );
+    }
+    await Promise.all(cachePromises);
 
-    const txResponse = await ethProvider.sendTransaction(rawSignedTx);
-    await txResponse.wait();
-
-    return { success: true, txHash: txResponse.hash };
-  } catch (error) {
-    return { success: false, error: error.message };
+    return determineWalletNetwork(
+      recipient.evmWalletAddress,
+      recipient.tronWalletAddress,
+      bestNetwork
+    );
   }
+
+  return determineWalletNetwork(recipientWallet, recipientTronWallet, bestNetwork);
+}
+
+function determineWalletNetwork(evmWallet, tronWallet, bestNetwork) {
+  if (bestNetwork === "TRON" && tronWallet) {
+    return { address: tronWallet, network: "TRON" };
+  }
+  if (["ETH", "BSC", "POLYGON"].includes(bestNetwork) && evmWallet) {
+    return { address: evmWallet, network: "EVM" };
+  }
+  return evmWallet ? { address: evmWallet, network: "EVM" } :
+    tronWallet ? { address: tronWallet, network: "TRON" } : null;
 }
 
 async function handleTransaction(ctx) {
-  const args = ctx.message.text.split(" ");
-  if (args.length !== 3) {
-    await ctx.reply("👉 Пример отправки: /send <сумма> @username");
-    return;
-  }
+  try {
+    const args = ctx.message.text.split(" ");
+    if (args.length !== 3) {
+      await ctx.reply("👉 Пример отправки: /send <сумма> @username");
+      return;
+    }
 
-  const amount = parseFloat(args[1]);
-  const username = args[2].replace("@", "");
-  const senderId = ctx.from.id;
+    const amount = parseFloat(args[1]);
+    const username = args[2].replace("@", "");
+    const senderId = ctx.from.id;
 
-  // 🔹 Check if sender has a registered wallet
-  const sender = await User.findOne({ where: { telegramId: senderId } });
-  if (!sender) {
-    const { text, options } = walletNotFoundMessage
-    await ctx.replyWithMarkdown(text, options);
-    return;
-  }
+    if (username === ctx.from.username) {
+      await ctx.reply("⚠️ Нельзя отправить USDT самому себе");
+      return;
+    }
 
-  // 🔹 Check if recipient exists
-  const recipient = await User.findOne({ where: { username } });
-  if (!recipient) {
-    await ctx.reply("⚠️ Этот пользователь пока не подключил кошелек. Попросите его использовать /connect, чтобы начать переводы.");
-    return;
-  }
+    // Проверяем валидность суммы
+    if (isNaN(amount) || amount <= 0) {
+      await ctx.reply("⚠️ Пожалуйста, укажите корректную сумму");
+      return;
+    }
 
-  // 🔹 Determine the cheapest network to use
-  const bestNetwork = await getBestNetwork();
+    // Получаем кошельки отправителя
+    const [senderWallet, senderTronWallet] = await Promise.all([
+      redis.get(`evmWallet:${senderId}`),
+      redis.get(`tronWallet:${senderId}`)
+    ]);
 
-  let provider;
-  if (bestNetwork === "ETH") provider = ethProvider;
-  if (bestNetwork === "BSC") provider = bscProvider;
-  if (bestNetwork === "POLYGON") provider = polygonProvider;
-
-  // 🔹 If the chosen network is Tron, we must handle it differently
-  if (bestNetwork === "TRON") {
-    try {
-      const senderBalance = await tronProvider.trx.getBalance(sender.walletAddress);
-      const amountTron = tronProvider.toSun(amount); // Convert to TRX format
-
-      if (senderBalance < amountTron) {
-        await ctx.reply(`💰 Недостаточно TRX в сети Tron для этой операции. Ваш текущий баланс: ${senderBalance / 1e6} TRX`);
+    if (!senderWallet && !senderTronWallet) {
+      const sender = await User.findOne({ where: { telegramId: senderId } });
+      if (!sender || (!sender.evmWalletAddress && !sender.tronWalletAddress)) {
+        const { text, options } = walletNotFoundMessage;
+        await ctx.replyWithMarkdown(text, options);
         return;
       }
 
-      const tx = await tronProvider.transactionBuilder.sendTrx(recipient.walletAddress, amountTron, sender.walletAddress);
-      const signedTx = await tronProvider.trx.sign(tx);
-      const result = await tronProvider.trx.sendRawTransaction(signedTx);
-
-      if (result.result) {
-        await ctx.reply(
-          `💸 ${amount} USDT отправлено через Tron (TRC-20) @${username}!\n` +
-          `🔍 [Посмотреть транзакцию в TronScan](https://tronscan.org/#/transaction/${result.txid})`
-        );
-
-        logger.info(`Пользователь ${senderId} отправил ${amount} USDT через Tron пользователю ${username}. TX: ${result.txid}`);
-      } else {
-        logger.error("Ошибка при отправке в Tron");
+      // Кэшируем кошельки отправителя
+      if (sender.evmWalletAddress) {
+        await redis.set(`evmWallet:${senderId}`, sender.evmWalletAddress, "EX", CACHE_EXPIRATION);
       }
-    } catch (error) {
-      logger.error(`Ошибка перевода от ${senderId} пользователю ${username} через Tron: ${error.message}`);
-      await ctx.reply("🔄 Сеть Tron сейчас перегружена. Повторите перевод чуть позже");
+      if (sender.tronWalletAddress) {
+        await redis.set(`tronWallet:${senderId}`, sender.tronWalletAddress, "EX", CACHE_EXPIRATION);
+      }
     }
-    return;
-  }
 
-  // 🔹 Check sender's balance in the chosen EVM network
-  const senderBalanceWei = await provider.getBalance(sender.walletAddress);
+    const bestNetwork = await getBestNetwork();
+    const recipientWallet = await getRecipientWallet(username, bestNetwork);
+
+    if (!recipientWallet) {
+      await ctx.reply("⚠️ Этот пользователь пока не подключил кошелек к боту. Попросите его использовать /connect либо /create");
+      return;
+    }
+
+    // Обработка TRON транзакций
+    if (bestNetwork === "TRON") {
+      await handleTronTransaction(ctx, amount, username, senderTronWallet, recipientWallet.address);
+      return;
+    }
+
+    // Обработка EVM транзакций
+    await handleEvmTransaction(ctx, amount, username, senderWallet, recipientWallet, bestNetwork);
+
+  } catch (error) {
+    logger.error(`Ошибка в handleTransaction: ${error.message}`);
+    await ctx.reply("⚠️ Произошла ошибка при обработке транзакции. Попробуйте позже.");
+  }
+}
+
+async function handleTronTransaction(ctx, amount, username, senderWallet, recipientAddress) {
+  try {
+    const senderBalance = await tronProvider.trx.getBalance(senderWallet);
+    const amountTron = tronProvider.toSun(amount);
+
+    if (senderBalance < amountTron) {
+      await ctx.reply(`💰 Недостаточно TRX. Баланс: ${senderBalance / 1e6} TRX`);
+      return;
+    }
+
+    const tx = await tronProvider.transactionBuilder.sendTrx(
+      recipientAddress,
+      amountTron,
+      senderWallet
+    );
+    const signedTx = await tronProvider.trx.sign(tx);
+    const result = await tronProvider.trx.sendRawTransaction(signedTx);
+
+    if (result.result) {
+      await ctx.reply(
+        `💸 ${amount} USDT отправлено через Tron (TRC-20) @${username}!\n` +
+        `🔍 [Посмотреть в TronScan](https://tronscan.org/#/transaction/${result.txid})`
+      );
+      logger.info(`Успешная Tron транзакция: ${senderId} -> ${username}, amount: ${amount}, tx: ${result.txid}`);
+    } else {
+      throw new Error("Транзакция не прошла");
+    }
+  } catch (error) {
+    logger.error(`Ошибка Tron транзакции: ${error.message}`);
+    await ctx.reply("🔄 Сеть Tron перегружена. Попробуйте позже.");
+  }
+}
+
+async function handleEvmTransaction(ctx, amount, username, senderWallet, recipientWallet, network) {
+  const provider = {
+    ETH: ethProvider,
+    BSC: bscProvider,
+    POLYGON: polygonProvider
+  }[network];
+
+  // Проверка баланса
+  const senderBalanceWei = await provider.getBalance(senderWallet);
   const senderBalance = ethers.formatEther(senderBalanceWei);
+
   if (parseFloat(senderBalance) < amount) {
-    await ctx.reply(`💰 Недостаточно средств. Текущий баланс в ${bestNetwork}: ${senderBalance}`);
+    await ctx.reply(`💰 Недостаточно средств. Баланс в ${network}: ${senderBalance}`);
     return;
   }
 
-  // 🔹 If amount >100 USDT, send unsigned transaction
-  if (amount > 100) {
-    const txData = await generateUnsignedTransaction(senderId, username, amount, bestNetwork);
+  // Для больших сумм генерируем неподписанную транзакцию
+  if (amount > MAX_AUTO_TRANSACTION) {
+    const txData = await generateUnsignedTransaction(ctx.from.id, username, amount, network);
     if (!txData.success) {
-      await ctx.reply(`❌ Ошибка: ${txData.error}`);
+      await ctx.reply(txData.error);
       return;
     }
 
     await ctx.reply(
       `🔐 *Подпишите транзакцию в MetaMask/WalletConnect*\n\n` +
       `📄 *Raw Transaction JSON:*\n\`${JSON.stringify(txData.tx, null, 2)}\`\n\n` +
-      `1️⃣ Скопируйте этот JSON\n` +
-      `2️⃣ Подпишите его в MetaMask\n` +
-      `3️⃣ Отправьте подписанную транзакцию мне`,
+      `1️⃣ Скопируйте JSON\n` +
+      `2️⃣ Подпишите в MetaMask\n` +
+      `3️⃣ Отправьте подписанную транзакцию в чат`,
       { parse_mode: "Markdown" }
     );
     return;
   }
 
-  // 🔹 Sending the transaction in the best network
+  // Для малых сумм отправляем автоматически
   try {
     const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
     const tx = await wallet.sendTransaction({
-      to: recipient.walletAddress,
+      to: recipientWallet.address,
       value: ethers.parseEther(amount.toString()),
     });
 
     await tx.wait();
+    const explorerUrl = {
+      ETH: "etherscan.io",
+      BSC: "bscscan.com",
+      POLYGON: "polygonscan.com"
+    }[network];
+
     await ctx.reply(
-      `✅ Отправлено ${amount} USDT через сеть ${bestNetwork} @${username}!\n🔗 [Транзакция](https://etherscan.io/tx/${tx.hash})`
+      `✅ Отправлено ${amount} USDT через ${network} @${username}!\n` +
+      `🔗 [Транзакция](https://${explorerUrl}/tx/${tx.hash})`
     );
-    logger.info(`Пользователь ${senderId} отправил ${amount} USDT через ${bestNetwork} пользователю ${username}. TX: ${tx.hash}`);
+    logger.info(`Успешная ${network} транзакция: ${ctx.from.id} -> ${username}, amount: ${amount}, tx: ${tx.hash}`);
   } catch (error) {
-    logger.error(`Ошибка перевода от ${senderId} пользователю ${username}: ${error.message}`);
-    await ctx.reply("❌ Ошибка при переводе. Попробуйте позже.");
+    logger.error(`Ошибка ${network} транзакции: ${error.message}`);
+    await ctx.reply("⚠️ Ошибка при переводе. Попробуйте позже.");
   }
 }
 
-async function handleSignedTransaction(ctx) {
-  const senderId = ctx.from.id;
-  const rawSignedTx = ctx.message.text.trim();
-
-  if (!rawSignedTx.startsWith("0x")) {
-    return next();
-  }
-
-  const result = await sendSignedTransaction(senderId, rawSignedTx);
-  if (!result.success) {
-    await ctx.reply(`❌ Ошибка отправки: ${result.error}`);
-    return;
-  }
-
-  await ctx.reply(`✅ Транзакция успешно отправлена!\n🔗 [Просмотреть в блокчейне](https://etherscan.io/tx/${result.txHash})`);
-}
-
-module.exports = { handleTransaction, handleSignedTransaction };
+module.exports = { handleTransaction };

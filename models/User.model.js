@@ -7,7 +7,7 @@ const User = sequelize.define("User", {
     allowNull: false,
     unique: true,
   },
-  walletAddress: {
+  evmWalletAddress: {
     type: DataTypes.STRING,
     allowNull: true,
     unique: false,

@@ -4,6 +4,10 @@ const { ethers } = require("ethers");
 const { TronWeb } = require("tronweb");
 const { getConnectWalletMessage } = require("../helpers/connectWalletMessages");
 
+// Константы
+const CACHE_EXPIRATION = 3600; // 1 час
+const SETUP_EXPIRATION = 300;  // 5 минут для setup
+
 async function connectWallet(ctx) {
   const message = getConnectWalletMessage('selectNetwork');
   await ctx.reply(message.text, message.options);
@@ -11,13 +15,21 @@ async function connectWallet(ctx) {
 
 async function handleConnectSelection(ctx) {
   const chatId = Number(ctx.from.id);
-  const network = ctx.match[1];
+  const network = ctx.match && ctx.match[1];
 
-  let cachedWallet = await redis.get(`wallet:${chatId}`);
-  let cachedTronWallet = await redis.get(`tronWallet:${chatId}`);
+  if (!network || !["evm", "tron"].includes(network)) {
+    await ctx.reply("⚠️ Не удалось определить сеть. Пожалуйста, попробуйте еще раз.");
+    return;
+  }
+  // Проверяем кэш по обоим идентификаторам
+  const [cachedEvmWallet, cachedTronWallet] = await Promise.all([
+    redis.get(`evmWallet:${chatId}`),
+    redis.get(`tronWallet:${chatId}`)
+  ]);
 
-  if (network === "evm" && cachedWallet) {
-    const message = getConnectWalletMessage('walletExists', { network, address: cachedWallet });
+  // Если кошелек уже существует, показываем сообщение
+  if (network === "evm" && cachedEvmWallet) {
+    const message = getConnectWalletMessage('walletExists', { network, address: cachedEvmWallet });
     await ctx.reply(message.text, message.options);
     return;
   }
@@ -28,14 +40,15 @@ async function handleConnectSelection(ctx) {
     return;
   }
 
+  // Сохраняем выбранную сеть во временном кэше
   const message = getConnectWalletMessage('enterAddress', { network });
-
   await ctx.reply(message.text, message.options);
-  await redis.set(`wallet_setup:${chatId}`, network, 'EX', 300);
+  await redis.set(`wallet_setup:${chatId}`, network, 'EX', SETUP_EXPIRATION);
 }
 
 async function handleWalletAddress(ctx, next) {
   const chatId = Number(ctx.from.id);
+  const username = ctx.from.username;
   const network = await redis.get(`wallet_setup:${chatId}`);
 
   if (!network) {
@@ -44,6 +57,7 @@ async function handleWalletAddress(ctx, next) {
 
   const address = ctx.message.text.trim();
 
+  // Валидация адреса
   if (network === "evm" && !ethers.isAddress(address)) {
     const message = getConnectWalletMessage('invalidAddress', { network });
     await ctx.reply(message.text, message.options);
@@ -56,36 +70,62 @@ async function handleWalletAddress(ctx, next) {
     return;
   }
 
-  let user = await User.findOne({ where: { telegramId: chatId } });
+  try {
+    // Обновляем или создаем пользователя
+    let user = await User.findOne({ where: { telegramId: chatId } });
 
-  if (user) {
-    const updateData = network === "evm"
-      ? { walletAddress: address }
-      : { tronWalletAddress: address };
+    if (user) {
+      const updateData = network === "evm"
+        ? { evmWalletAddress: address }
+        : { tronWalletAddress: address };
 
-    await User.update(updateData, {
-      where: { telegramId: chatId }
-    });
-  } else {
-    await User.create({
-      telegramId: chatId,
-      username: ctx.from.username || null,
-      walletAddress: network === "evm" ? address : null,
-      tronWalletAddress: network === "tron" ? address : null
-    });
+      await User.update(updateData, {
+        where: { telegramId: chatId }
+      });
+    } else {
+       await User.create({
+        telegramId: chatId,
+        username: username || null,
+        evmWalletAddress: network === "evm" ? address : null,
+        tronWalletAddress: network === "tron" ? address : null
+      });
+    }
+
+    const cachePromises = [];
+
+    cachePromises.push(
+      redis.set(
+        network === "evm" ? `evmWallet:${chatId}` : `tronWallet:${chatId}`,
+        address,
+        'EX',
+        CACHE_EXPIRATION
+      )
+    );
+
+    if (username) {
+      cachePromises.push(
+        redis.set(
+          network === "evm" ? `evmWallet:${username}` : `tronWallet:${username}`,
+          address,
+          'EX',
+          CACHE_EXPIRATION
+        )
+      );
+    }
+
+    // Удаляем временный кэш setup
+    cachePromises.push(redis.del(`wallet_setup:${chatId}`));
+
+    await Promise.all(cachePromises);
+
+    const message = getConnectWalletMessage('walletConnected', { network, address });
+    await ctx.reply(message.text, message.options);
+
+  } catch (error) {
+    const message = getConnectWalletMessage('error');
+    await ctx.reply(message.text, message.options);
+    await redis.del(`wallet_setup:${chatId}`);
   }
-
-  // Кешируем кошелек
-  await redis.set(
-    network === "evm" ? `wallet:${chatId}` : `tronWallet:${chatId}`,
-    address,
-    'EX',
-    3600
-  );
-
-  const message = getConnectWalletMessage('walletConnected', { network, address });
-  await ctx.reply(message.text, message.options);
-  await redis.del(`wallet_setup:${chatId}`);
 }
 
 module.exports = {

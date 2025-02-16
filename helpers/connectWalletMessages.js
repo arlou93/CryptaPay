@@ -1,5 +1,5 @@
 function getConnectWalletMessage(type, params = {}) {
-  const network = params.network ? params.network.toUpperCase() : "UNKNOWN";
+  const network = params.network ? params.network : "UNKNOWN";
   const address = params.address || "N/A";
 
   const messages = {
@@ -34,7 +34,7 @@ function getConnectWalletMessage(type, params = {}) {
     },
 
     enterAddress: {
-      text: `✍️ Пожалуйста, отправьте адрес вашего *${network}*-кошелька для привязки`,
+      text: `✍️ Пожалуйста, отправьте адрес вашего *${network === 'evm' ? 'EVM' : 'TRON'}*-кошелька для привязки`,
       options: {
         parse_mode: "Markdown",
         reply_markup: {

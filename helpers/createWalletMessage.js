@@ -45,7 +45,7 @@ function getCreateWalletMessage(type, params = {}) {
     }
   };
 
-  return messages[type] || { text: "❌ Сообщение не найдено", options: { parse_mode: "Markdown" } };
+  return messages[type] || { text: "⚠️ Сообщение не найдено", options: { parse_mode: "Markdown" } };
 }
 
 module.exports = {
