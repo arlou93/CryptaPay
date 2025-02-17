@@ -1,5 +1,5 @@
 const { redis } = require("../config/redis");
-const User = require("../models/User.model");
+const User = require("../models/User");
 const { ethers } = require("ethers");
 const { TronWeb } = require("tronweb");
 const { getConnectWalletMessage } = require("../helpers/connectWalletMessages");
@@ -83,7 +83,7 @@ async function handleWalletAddress(ctx, next) {
         where: { telegramId: chatId }
       });
     } else {
-       await User.create({
+      await User.create({
         telegramId: chatId,
         username: username || null,
         evmWalletAddress: network === "evm" ? address : null,
@@ -91,32 +91,13 @@ async function handleWalletAddress(ctx, next) {
       });
     }
 
-    const cachePromises = [];
-
-    cachePromises.push(
-      redis.set(
-        network === "evm" ? `evmWallet:${chatId}` : `tronWallet:${chatId}`,
-        address,
-        'EX',
-        CACHE_EXPIRATION
-      )
-    );
-
-    if (username) {
-      cachePromises.push(
-        redis.set(
-          network === "evm" ? `evmWallet:${username}` : `tronWallet:${username}`,
-          address,
-          'EX',
-          CACHE_EXPIRATION
-        )
-      );
-    }
-
-    // Удаляем временный кэш setup
-    cachePromises.push(redis.del(`wallet_setup:${chatId}`));
-
-    await Promise.all(cachePromises);
+    await redis.set(
+      network === "evm" ? `evmWallet:${chatId}` : `tronWallet:${chatId}`,
+      address,
+      'EX',
+      CACHE_EXPIRATION
+    )
+    await redis.del(`wallet_setup:${chatId}`)
 
     const message = getConnectWalletMessage('walletConnected', { network, address });
     await ctx.reply(message.text, message.options);

@@ -1,4 +1,4 @@
-const User = require("../models/User.model");
+const User = require("../models/User");
 const { ethers } = require("ethers");
 const { ethProvider, bscProvider, polygonProvider } = require("../config/providers");
 const { tronProvider } = require("../config/providers");

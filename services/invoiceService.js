@@ -1,5 +1,5 @@
 const { messageCreator } = require("../helpers/messageCreator");
-const User = require("../models/User.model");
+const User = require("../models/User");
 
 async function generateInvoice(ctx) {
   const args = ctx.message.text.split(" ");

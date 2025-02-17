@@ -6,9 +6,7 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 bot.use(rateLimitMiddleware);
 
 const {
-  handleTransaction,
-  handleTransactionConfirm,
-  handleTransactionCancel
+  handleTransaction, handleTransactionConfirmation, handleTransactionCancel,
 } = require("../services/transactionService");
 const { getBalance } = require("../services/balanceService");
 const { connectWallet, handleConnectSelection, handleWalletAddress } = require("../services/connectWalletService");
@@ -27,9 +25,10 @@ bot.action("help", helpHandler);
 bot.command("fees", feesCommand);
 bot.action("fees", feesCommand);
 
-// bot.command("send", handleTransaction);
-// bot.action('confirm_tx', handleTransactionConfirm);
-// bot.action('cancel_tx', handleTransactionCancel);
+bot.command("send", handleTransaction);
+
+bot.action('confirm_tx', handleTransactionConfirmation);
+bot.action('cancel_tx', handleTransactionCancel);
 bot.command("invoice", generateInvoice);
 bot.command("balance", getBalance);
 

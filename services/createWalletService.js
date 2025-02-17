@@ -1,5 +1,5 @@
 const { redis } = require("../config/redis");
-const User = require("../models/User.model");
+const User = require("../models/User");
 const { Wallet } = require("ethers");
 const { TronWeb } = require("tronweb");
 const { getCreateWalletMessage } = require("../helpers/createWalletMessage");
@@ -29,9 +29,7 @@ async function handleCreateSelection(ctx) {
 
   if (network === "evm" && user?.evmWalletAddress) {
     await redis.set(`evmWallet:${chatId}`, user.evmWalletAddress, 'EX', 3600);
-    if (ctx.from.username) {
-      await redis.set(`evmWallet:${ctx.from.username}`, user.evmWalletAddress, 'EX', 3600);
-    }
+
     const message = getCreateWalletMessage('walletAlreadyExists', { network, address: user.evmWalletAddress });
     await ctx.reply(message.text, message.options);
     return;
@@ -39,9 +37,7 @@ async function handleCreateSelection(ctx) {
 
   if (network === "tron" && user?.tronWalletAddress) {
     await redis.set(`tronWallet:${chatId}`, user.tronWalletAddress, 'EX', 3600);
-    if (ctx.from.username) {
-      await redis.set(`tronWallet:${ctx.from.username}`, user.tronWalletAddress, 'EX', 3600);
-    }
+
     const message = getCreateWalletMessage('walletAlreadyExists', { network, address: user.tronWalletAddress });
     await ctx.reply(message.text, message.options);
     return;

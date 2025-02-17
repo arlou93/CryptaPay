@@ -1,4 +1,4 @@
-const User = require("../models/User.model");
+const User = require("../models/User");
 const { redis } = require("../config/redis");
 const { getDisconnectWalletMessage } = require("../helpers/getDisconnectWalletMessage");
 
@@ -50,7 +50,6 @@ async function handleDisconnectSelection(ctx) {
     return;
   }
 
-  const username = user.username; // Получаем username пользователя
   let cachedEvmWallet = await redis.get(`evmWallet:${chatId}`);
   let cachedTronWallet = await redis.get(`tronWallet:${chatId}`);
 
@@ -63,10 +62,6 @@ async function handleDisconnectSelection(ctx) {
 
     // Удаляем кэш по chatId
     await redis.del(`evmWallet:${chatId}`);
-    // Удаляем кэш по username
-    if (username) {
-      await redis.del(`evmWallet:${username}`);
-    }
 
     const message = getDisconnectWalletMessage('walletDisconnectedEVM');
     await ctx.reply(message.text, message.options);

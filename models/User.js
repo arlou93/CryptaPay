@@ -10,12 +10,10 @@ const User = sequelize.define("User", {
   evmWalletAddress: {
     type: DataTypes.STRING,
     allowNull: true,
-    unique: false,
   },
   tronWalletAddress: {
     type: DataTypes.STRING,
     allowNull: true,
-    unique: false,
   },
   username: {
     type: DataTypes.STRING,
