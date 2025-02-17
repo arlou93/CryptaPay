@@ -76,10 +76,6 @@ async function handleDisconnectSelection(ctx) {
 
     // Удаляем кэш по chatId
     await redis.del(`tronWallet:${chatId}`);
-    // Удаляем кэш по username
-    if (username) {
-      await redis.del(`tronWallet:${username}`);
-    }
 
     const message = getDisconnectWalletMessage('walletDisconnectedTRON');
     await ctx.reply(message.text, message.options);
