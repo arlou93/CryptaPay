@@ -139,7 +139,7 @@ async function handleTransaction(ctx) {
     const recipientWallet = getWalletForNetwork(recipientWallets, bestNetwork);
 
     if (!senderWallet || !recipientWallet) {
-      await ctx.reply("⚠️ Ни у вас, ни у получателя нет ни одного активного кошелька");
+      await ctx.reply(`⚠️ Лучшая есть для отправки: ${bestNetwork}, но либо у вас либо у получателя нет кошелька в этой сети`);
       return;
     }
 

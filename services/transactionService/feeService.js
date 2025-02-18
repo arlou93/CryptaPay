@@ -1,7 +1,8 @@
 const { ethers } = require("ethers");
-const { ethProvider, bscProvider, polygonProvider, tronProvider } = require("../../config/providers");
 const logger = require("../../config/logger");
 const FEE_CONFIG = require("../../config/feeConfig");
+const { getProvider } = require("./networkService");
+const { TRON_USDT_ADDRESS, USDT_ADDRESSES, USDT_ABI } = require("../../config/constants");
 
 function calculateServiceFee(amount) {
   const fee = amount * FEE_CONFIG.SERVICE.PERCENTAGE;
@@ -32,19 +33,28 @@ async function calculateNetworkFee(network, provider) {
 }
 
 
+// services/transactionService/feeService.js
 async function getWalletBalance(address, network) {
   try {
+    const provider = getProvider(network);
+
     if (network === "TRON") {
-      const balance = await tronProvider.trx.getBalance(address);
-      return tronProvider.fromSun(balance);
+      // Получаем контракт USDT в сети TRON
+      const tronUsdtContract = await tronProvider.contract().at(TRON_USDT_ADDRESS);
+      const balanceUsdt = await tronUsdtContract.methods.balanceOf(address).call();
+
+      return Number(balanceUsdt) / 1e6; // USDT имеет 6 decimals
     }
 
-    const provider = { ETH: ethProvider, BSC: bscProvider, POLYGON: polygonProvider }[network];
-    const balanceWei = await provider.getBalance(address);
-    return parseFloat(ethers.formatEther(balanceWei));
+    const usdtAddress = USDT_ADDRESSES[network];
+
+    const usdtContract = new ethers.Contract(usdtAddress, USDT_ABI, provider);
+    const balance = await usdtContract.balanceOf(address);
+    const decimals = await usdtContract.decimals();
+    return Number(ethers.formatUnits(balance, decimals));
   } catch (error) {
-    logger.error(`Ошибка получения баланса: ${error.message}`);
-    throw new Error("Не удалось получить баланс");
+    logger.error(`Ошибка получения баланса USDT: ${error.message}`);
+    throw new Error("Не удалось получить баланс USDT");
   }
 }
 
