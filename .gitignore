@@ -3,4 +3,4 @@ node_modules
 .env
 bot-errors.log
 bot.log
-TODO.md
+todo.log
