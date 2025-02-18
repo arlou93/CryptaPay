@@ -14,7 +14,6 @@ const { createWallet, handleCreateSelection } = require("../services/createWalle
 const { disconnectWallet, handleDisconnectSelection } = require("../services/disconnectWalletService");
 const { startHandler } = require("./handlers/startHandler");
 const { helpHandler } = require("./handlers/helpHandler");
-const { generateInvoice } = require("../services/invoiceService");
 const { feesCommand } = require("./handlers/feesHandler");
 
 bot.command("start", startHandler);
@@ -29,7 +28,6 @@ bot.command("send", handleTransaction);
 
 bot.action('confirm_tx', handleTransactionConfirmation);
 bot.action('cancel_tx', handleTransactionCancel);
-bot.command("invoice", generateInvoice);
 bot.command("balance", getBalance);
 
 bot.command("create", createWallet);

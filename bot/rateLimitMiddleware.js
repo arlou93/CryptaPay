@@ -5,7 +5,6 @@ const RATE_LIMITS = {
   "/balance": 1, // Запрос баланса раз в 5 сек
   "/connect": 1, // Подключение кошелька раз в 30 сек
   "/create": 1, // Создание кошелька раз в 60 сек
-  "/invoice": 1, // Создание кошелька раз в 60 сек
 };
 
 async function rateLimitMiddleware(ctx, next) {
